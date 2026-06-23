@@ -1,9 +1,7 @@
 import 'package:dio/dio.dart';
 
 class ApiService {
-  // CONFIGURACIÓN DE TU BACKEND:
-  // Si pruebas en Web (Chrome), usas 'localhost'. 
-  // Si pruebas en Emulador Android, se usa la IP especial '10.0.2.2'.
+
   static const String _baseUrl = 'http://192.168.1.6:8000';
 
   final Dio _dio = Dio(BaseOptions(
@@ -22,11 +20,12 @@ class ApiService {
     }
   }
 
-  // 2. Registrar un movimiento personal (Ingreso o Gasto)
+  // 2. Registrar un movimiento personal (Ingreso o Gasto con Método de Pago)
   Future<Map<String, dynamic>> registrarTransaccionPersonal({
-    required String tipo,
+    required String tipo, // 'ingreso' o 'gasto'
     required double monto,
     required String categoria,
+    required String metodoPago, // NUEVO: 'cuenta_bancaria', 'efectivo', 'tarjeta_credito'
     String? descripcion,
   }) async {
     try {
@@ -35,6 +34,7 @@ class ApiService {
         'monto': monto,
         'categoria': categoria,
         'descripcion': descripcion,
+        'metodo_pago': metodoPago, // Mapeado exactamente como lo pide FastAPI
       });
       return response.data as Map<String, dynamic>;
     } catch (e) {
@@ -42,13 +42,23 @@ class ApiService {
     }
   }
 
-  // 3. Obtener el historial de movimientos personales
+  // 3. Obtener el historial de movimientos personales (activos)
   Future<List<dynamic>> obtenerTransaccionesPersonales() async {
     try {
       final response = await _dio.get('/finanzas-personales/');
       return response.data as List<dynamic>;
     } catch (e) {
       throw Exception('Error al cargar historial: $e');
+    }
+  }
+
+  // 3.1. [NUEVO CRUD] Eliminar / Anular una transacción personal
+  Future<Map<String, dynamic>> eliminarTransaccionPersonal(String transaccionId) async {
+    try {
+      final response = await _dio.delete('/finanzas-personales/$transaccionId');
+      return response.data as Map<String, dynamic>;
+    } catch (e) {
+      throw Exception('Error al eliminar transacción: $e');
     }
   }
 
@@ -83,15 +93,15 @@ class ApiService {
 
   // 6. Crear un préstamo amarrado a un cliente
   Future<Map<String, dynamic>> crearPrestamo({
-    required String clienteId, // Recibe un String (UUID)
+    required String clienteId, 
     required double monto,
     required double interes,
   }) async {
     try {
       final response = await _dio.post('/prestamos/', data: {
         'cliente_id': clienteId,
-        'monto_inicial': monto.toInt(), // El backend pide 'monto_inicial'
-        'tasa_interes': interes.toInt(), // El backend pide 'tasa_interes'
+        'monto_inicial': monto.toInt(), 
+        'tasa_interes': interes.toInt(), 
       });
       return response.data as Map<String, dynamic>;
     } on DioException catch (e) {
@@ -104,15 +114,17 @@ class ApiService {
     }
   }
 
-  // 7. Registrar un abono amarrado a un préstamo
+  // 7. Registrar un abono amarrado a un préstamo (Separando Capital e Interés)
   Future<Map<String, dynamic>> registrarAbono({
-    required String prestamoId, // El id del préstamo es UUID (String)
-    required double monto,
+    required String prestamoId, 
+    required double montoCapital, // MODIFICADO: Dinero que disminuye la deuda
+    required double montoInteres, // MODIFICADO: Dinero de ganancia líquida
   }) async {
     try {
       final response = await _dio.post('/abonos/', data: {
         'prestamo_id': prestamoId,
-        'monto': monto,
+        'monto_capital': montoCapital,
+        'monto_interes': montoInteres,
       });
       return response.data as Map<String, dynamic>;
     } on DioException catch (e) {
@@ -124,4 +136,60 @@ class ApiService {
       throw Exception('Error inesperado: $e');
     }
   }
+
+  // 7.1. [NUEVO CRUD] Anular un abono (Restaura la deuda del cliente automáticamente)
+  Future<Map<String, dynamic>> anularAbono(String abonoId) async {
+    try {
+      final response = await _dio.delete('/abonos/$abonoId');
+      return response.data as Map<String, dynamic>;
+    } on DioException catch (e) {
+      if (e.response != null && e.response?.data != null) {
+        throw Exception('${e.response?.data['detail'] ?? e.response?.data}');
+      }
+      throw Exception('Error al anular abono: ${e.message}');
+    } catch (e) {
+      throw Exception('Error inesperado: $e');
+    }
+  }
+
+  // 7.2. [NUEVO CRUD] Editar un abono (Recalcula deudas en caliente)
+  Future<Map<String, dynamic>> editarAbono({
+    required String abonoId,
+    required double montoCapital,
+    required double montoInteres,
+  }) async {
+    try {
+      final response = await _dio.put('/abonos/$abonoId', data: {
+        'monto_capital': montoCapital,
+        'monto_interes': montoInteres,
+      });
+      return response.data as Map<String, dynamic>;
+    } on DioException catch (e) {
+      if (e.response != null && e.response?.data != null) {
+        throw Exception('${e.response?.data['detail'] ?? e.response?.data}');
+      }
+      throw Exception('Error al editar abono: ${e.message}');
+    } catch (e) {
+      throw Exception('Error inesperado: $e');
+    }
+  }
+
+  Future<List<dynamic>> obtenerAbonosPorPrestamo(String prestamoId) async {
+  try {
+    // Ajusta la URL '/abonos/prestamo/' según cómo la tengas construida en FastAPI (Backend)
+    final response = await _dio.get(
+      '$_baseUrl/abonos/prestamo/$prestamoId',
+      options: Options(headers: {'Content-Type': 'application/json'}),
+    );
+
+    if (response.statusCode == 200) {
+      return response.data;
+    } else {
+      throw Exception('Error al obtener abonos: ${response.statusCode}');
+    }
+  } catch (e) {
+    throw Exception('Error de conexión al obtener abonos: $e');
+  }
+}
+
 }

@@ -20,6 +20,8 @@ class _FinanzasScreenState extends State<FinanzasScreen> {
   final _descController = TextEditingController();
   String _tipoSeleccionado = 'gasto';
   String _categoriaSeleccionada = 'Comida';
+  String _metodoPagoSeleccionado = 'Efectivo';
+final List<String> _metodosPago = ['Efectivo', 'Transferencia'];
 
   final List<String> _categorias = ['Comida', 'Arriendo', 'Transporte', 'Salario', 'Servicios', 'Entretenimiento', 'Otros'];
 
@@ -29,31 +31,53 @@ class _FinanzasScreenState extends State<FinanzasScreen> {
     _cargarHistorial();
   }
 
+  @override
+  void dispose() {
+    _montoController.dispose();
+    _descController.dispose();
+    super.dispose();
+  }
+
   Future<void> _cargarHistorial() async {
+    if (!mounted) return;
+    setState(() => _cargando = true);
     try {
-      setState(() => _cargando = true);
       final datos = await _apiService.obtenerTransaccionesPersonales();
-      setState(() {
-        _historial = datos;
-        _cargando = false;
-      });
+      if (mounted) {
+        setState(() {
+          _historial = datos;
+          _cargando = false;
+        });
+      }
     } catch (e) {
-      setState(() => _cargando = false);
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Error: $e'), backgroundColor: Colors.red),
-      );
+      if (mounted) {
+        setState(() => _cargando = false);
+        _mostrarSnackBar('Error al cargar historial: $e', Colors.red);
+      }
     }
   }
 
   void _guardarTransaccion() async {
     if (_formKey.currentState!.validate()) {
       try {
-        await _apiService.registrarTransaccionPersonal(
-          tipo: _tipoSeleccionado,
-          monto: double.parse(_montoController.text),
-          categoria: _categoriaSeleccionada,
-          descripcion: _descController.text.isEmpty ? null : _descController.text,
-        );
+        final double montoParsed = double.tryParse(_montoController.text) ?? 0.0;
+        
+        if (montoParsed <= 0) {
+          _mostrarSnackBar('Por favor, ingresa un monto mayor a 0', Colors.orange);
+          return;
+        }
+
+        // Busca esta sección en tu finanzas_screen.dart y déjala así:
+await _apiService.registrarTransaccionPersonal(
+  tipo: _tipoSeleccionado,
+  monto: montoParsed,
+  categoria: _categoriaSeleccionada,
+  metodoPago: _metodoPagoSeleccionado, // <--- ¡AQUÍ SE AGREGA EL ARGUMENTO FALTARE!
+  descripcion: _descController.text.trim().isEmpty ? null : _descController.text.trim(),
+);
+        
+        // Verificación de contexto seguro antes de manipular la navegación o UI
+        if (!mounted) return;
         
         _montoController.clear();
         _descController.clear();
@@ -62,25 +86,34 @@ class _FinanzasScreenState extends State<FinanzasScreen> {
         _cargarHistorial(); // Refresca esta pantalla
         widget.onTransaccionAgregada(); // Refresca el Dashboard general
         
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('¡Registro exitoso! 🎉'), backgroundColor: Colors.green),
-        );
+        _mostrarSnackBar('¡Registro exitoso! 🎉', Colors.green);
       } catch (e) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error: $e'), backgroundColor: Colors.red),
-        );
+        _mostrarSnackBar('Error al guardar: $e', Colors.red);
       }
     }
   }
 
+  void _mostrarSnackBar(String msg, Color color) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(msg), backgroundColor: color),
+    );
+  }
+
   // Ventana moderna que emerge desde abajo para registrar datos (UX Limpia)
   void _mostrarFormularioModal() {
+    // Limpiamos y reestablecemos valores por defecto antes de abrir el modal
+    _montoController.clear();
+    _descController.clear();
+    _tipoSeleccionado = 'gasto';
+    _categoriaSeleccionada = 'Comida';
+
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
       shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(24))),
       builder: (context) {
-        return StatefulBuilder( // Permite cambiar estados dentro del modal
+        return StatefulBuilder( // Permite cambiar estados visuales dentro del modal en tiempo real
           builder: (context, setModalState) {
             return Padding(
               padding: EdgeInsets.only(
@@ -124,7 +157,7 @@ class _FinanzasScreenState extends State<FinanzasScreen> {
                       // Input de Monto con diseño limpio
                       TextFormField(
                         controller: _montoController,
-                        keyboardType: TextInputType.number,
+                        keyboardType: const TextInputType.numberWithOptions(decimal: true),
                         decoration: InputDecoration(
                           labelText: 'Monto (\$)',
                           prefixIcon: const Icon(Icons.attach_money),
@@ -148,9 +181,25 @@ class _FinanzasScreenState extends State<FinanzasScreen> {
                       ),
                       const SizedBox(height: 16),
 
+                      // Debajo del Dropdown de Categoría, añade esto:
+                      const SizedBox(height: 16),
+
+                      DropdownButtonFormField<String>(
+                        value: _metodoPagoSeleccionado,
+                        decoration: InputDecoration(
+                          labelText: 'Método de Pago',
+                          border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                        ),
+                        items: _metodosPago.map((String metodo) {
+                          return DropdownMenuItem(value: metodo, child: Text(metodo));
+                        }).toList(),
+                        onChanged: (val) => setModalState(() => _metodoPagoSeleccionado = val!),
+                      ),
+                      
                       // Nota opcional
                       TextFormField(
                         controller: _descController,
+                        textCapitalization: TextCapitalization.sentences,
                         decoration: InputDecoration(
                           labelText: 'Descripción / Nota (Opcional)',
                           border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
@@ -158,7 +207,7 @@ class _FinanzasScreenState extends State<FinanzasScreen> {
                       ),
                       const SizedBox(height: 24),
 
-                      // Botón Guardar Profesional
+                      // Botón Guardar Dinámico e Inteligente
                       SizedBox(
                         width: double.infinity,
                         height: 50,
@@ -178,7 +227,7 @@ class _FinanzasScreenState extends State<FinanzasScreen> {
                 ),
               ),
             );
-          }
+          },
         );
       },
     );
@@ -190,34 +239,47 @@ class _FinanzasScreenState extends State<FinanzasScreen> {
       body: _cargando
           ? const Center(child: CircularProgressIndicator())
           : _historial.isEmpty
-              ? const Center(child: Text('Aún no hay registros personales.\n¡Toca el botón + abajo!', textAlign: TextAlign.center, style: TextStyle(color: Colors.grey, fontSize: 16)))
-              : ListView.builder(
-                  padding: const EdgeInsets.all(16),
-                  itemCount: _historial.length,
-                  itemBuilder: (context, index) {
-                    final item = _historial[index];
-                    final esGasto = item['tipo'] == 'gasto';
-                    return Card(
-                      margin: const EdgeInsets.symmetric(vertical: 6),
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                      child: ListTile(
-                        leading: CircleAvatar(
-                          backgroundColor: esGasto ? Colors.red[50] : Colors.green[50],
-                          child: Icon(esGasto ? Icons.arrow_downward : Icons.arrow_upward, color: esGasto ? Colors.red : Colors.green),
-                        ),
-                        title: Text(item['categoria'], style: const TextStyle(fontWeight: FontWeight.bold)),
-                        subtitle: Text(item['descripcion'] ?? 'Sin descripción'),
-                        trailing: Text(
-                          '${esGasto ? "-" : "+"}\$${item['monto']}',
-                          style: TextStyle(
-                            color: esGasto ? Colors.red : Colors.green,
-                            fontWeight: FontWeight.bold,
-                            fontSize: 16,
+              ? const Center(
+                  child: Text(
+                    'Aún no hay registros personales.\n¡Toca el botón + abajo!', 
+                    textAlign: TextAlign.center, 
+                    style: TextStyle(color: Colors.grey, fontSize: 16),
+                  ),
+                )
+              : RefreshIndicator(
+                  onRefresh: _cargarHistorial,
+                  child: ListView.builder(
+                    padding: const EdgeInsets.all(16),
+                    itemCount: _historial.length,
+                    itemBuilder: (context, index) {
+                      final item = _historial[index];
+                      final esGasto = item['tipo'].toString().trim().toLowerCase() == 'gasto';
+                      
+                      return Card(
+                        margin: const EdgeInsets.symmetric(vertical: 6),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                        child: ListTile(
+                          leading: CircleAvatar(
+                            backgroundColor: esGasto ? Colors.red[50] : Colors.green[50],
+                            child: Icon(
+                              esGasto ? Icons.arrow_downward : Icons.arrow_upward, 
+                              color: esGasto ? Colors.red : Colors.green,
+                            ),
+                          ),
+                          title: Text(item['categoria'] ?? 'General', style: const TextStyle(fontWeight: FontWeight.bold)),
+                          subtitle: Text(item['descripcion'] ?? 'Sin descripción'),
+                          trailing: Text(
+                            '${esGasto ? "-" : "+"}\$${item['monto']}',
+                            style: TextStyle(
+                              color: esGasto ? Colors.red : Colors.green,
+                              fontWeight: FontWeight.bold,
+                              fontSize: 16,
+                            ),
                           ),
                         ),
-                      ),
-                    );
-                  },
+                      );
+                    },
+                  ),
                 ),
       floatingActionButton: FloatingActionButton.extended(
         onPressed: _mostrarFormularioModal,

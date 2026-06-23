@@ -109,7 +109,7 @@ class DashboardScreenState extends State<DashboardScreen> { // <-- Aquí tambié
                               Container(
                                 padding: const EdgeInsets.all(8),
                                 decoration: BoxDecoration(
-                                  color: Colors.blue.withOpacity(0.1),
+                                  color: Colors.indigo.withValues(alpha: 0.2),
                                   borderRadius: BorderRadius.circular(8)
                                 ),
                                 child: _construirFilaDato('Mi Dinero Libre Disponible', '\$${_datosPersonales?['mi_dinero_libre_disponible']}', Colors.blue, resaltar: true),
