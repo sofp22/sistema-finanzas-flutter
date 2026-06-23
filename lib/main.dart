@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'screens/dashboard_screen.dart';
 import 'screens/finanzas_screen.dart';
+import 'screens/clientes_screen.dart';
 
 void main() {
   runApp(const MiAppFinanciera());
@@ -32,20 +33,20 @@ class NavegacionPrincipal extends StatefulWidget {
 class _NavegacionPrincipalState extends State<NavegacionPrincipal> {
   int _indiceSeleccionado = 0;
   
-  // Clave global para poder refrescar el estado del Dashboard desde la otra pestaña
-static final GlobalKey<DashboardScreenState> childKey = GlobalKey<DashboardScreenState>();
+  static final GlobalKey<DashboardScreenState> childKey = GlobalKey<DashboardScreenState>();
 
   @override
   Widget build(BuildContext context) {
-    // Lista de pantallas acopladas en la navegación por pestañas
+    // Lista de las 3 pestañas principales de la app móvil
     final List<Widget> pantallas = [
       DashboardScreen(key: childKey),
+      ClientesScreen(onCambioNegocio: () {
+        // Cuando prestas o cobras, refresca automáticamente el cuadro verde del Dashboard
+        childKey.currentState?.cargarInformacionExterna();
+      }),
       FinanzasScreen(onTransaccionAgregada: () {
-        // Truco de UX: Cuando agregas un gasto, le avisa al dashboard de forma interna para que se auto-refresque
-        final estado = childKey.currentState;
-        if (estado != null) {
-          (estado as dynamic).cargarInformacionExterna();
-        }
+        // Cuando gastas de tu bolsillo, refresca el cuadro azul del Dashboard
+        childKey.currentState?.cargarInformacionExterna();
       }),
     ];
 
@@ -68,6 +69,11 @@ static final GlobalKey<DashboardScreenState> childKey = GlobalKey<DashboardScree
             icon: Icon(Icons.analytics_outlined),
             selectedIcon: Icon(Icons.analytics),
             label: 'Dashboard',
+          ),
+          NavigationDestination(
+            icon: Icon(Icons.people_outline),
+            selectedIcon: Icon(Icons.people),
+            label: 'Clientes',
           ),
           NavigationDestination(
             icon: Icon(Icons.account_balance_wallet_outlined),
