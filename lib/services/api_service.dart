@@ -1,13 +1,13 @@
 import 'package:dio/dio.dart';
 
 class ApiService {
-
   static const String _baseUrl = 'http://192.168.1.6:8000';
 
   final Dio _dio = Dio(BaseOptions(
     baseUrl: _baseUrl,
-    connectTimeout: const Duration(seconds: 5), // Si el backend no responde en 5s, frena.
-    receiveTimeout: const Duration(seconds: 3),
+    // ¡AUMENTAMOS LOS TIEMPOS A 20 SEGUNDOS PARA EVITAR QUE SE CORTE LA CONEXIÓN!
+    connectTimeout: const Duration(seconds: 20), 
+    receiveTimeout: const Duration(seconds: 20),
   ));
 
   // 1. URL del Dashboard Separado (Empresa vs Personal)
@@ -34,7 +34,7 @@ class ApiService {
         'monto': monto,
         'categoria': categoria,
         'descripcion': descripcion,
-        'metodo_pago': metodoPago, // Mapeado exactamente como lo pide FastAPI
+        'metodo_pago': metodoPago, 
       });
       return response.data as Map<String, dynamic>;
     } catch (e) {
@@ -91,6 +91,29 @@ class ApiService {
     }
   }
 
+  // 5.1. [NUEVO] Eliminar un cliente
+  Future<void> eliminarCliente(String clienteId) async {
+    try {
+      await _dio.delete('/clientes/$clienteId');
+    } on DioException catch (e) {
+      if (e.response != null && e.response?.data != null) {
+        throw Exception('El backend dice: ${e.response?.data}');
+      }
+      throw Exception('Error al eliminar cliente: ${e.message}');
+    } catch (e) {
+      throw Exception('Error inesperado: $e');
+    }
+  }
+
+  // 5.2. [NUEVO] Editar un cliente
+  Future<void> editarCliente(String clienteId, Map<String, dynamic> datosActualizados) async {
+    try {
+      await _dio.put('/clientes/$clienteId', data: datosActualizados);
+    } catch (e) {
+      throw Exception('Error al actualizar cliente: $e');
+    }
+  }
+
   // 6. Crear un préstamo amarrado a un cliente
   Future<Map<String, dynamic>> crearPrestamo({
     required String clienteId, 
@@ -117,14 +140,16 @@ class ApiService {
   // 7. Registrar un abono amarrado a un préstamo (Separando Capital e Interés)
   Future<Map<String, dynamic>> registrarAbono({
     required String prestamoId, 
-    required double montoCapital, // MODIFICADO: Dinero que disminuye la deuda
-    required double montoInteres, // MODIFICADO: Dinero de ganancia líquida
+    required double montoCapital, 
+    required double montoInteres, 
+    required String metodoPago,
   }) async {
     try {
       final response = await _dio.post('/abonos/', data: {
         'prestamo_id': prestamoId,
         'monto_capital': montoCapital,
         'monto_interes': montoInteres,
+        'metodo_pago': metodoPago,
       });
       return response.data as Map<String, dynamic>;
     } on DioException catch (e) {
@@ -174,22 +199,21 @@ class ApiService {
     }
   }
 
+  // CORREGIDO: Quitamos la doble BaseURL
   Future<List<dynamic>> obtenerAbonosPorPrestamo(String prestamoId) async {
-  try {
-    // Ajusta la URL '/abonos/prestamo/' según cómo la tengas construida en FastAPI (Backend)
-    final response = await _dio.get(
-      '$_baseUrl/abonos/prestamo/$prestamoId',
-      options: Options(headers: {'Content-Type': 'application/json'}),
-    );
+    try {
+      final response = await _dio.get(
+        '/abonos/prestamo/$prestamoId', 
+        options: Options(headers: {'Content-Type': 'application/json'}),
+      );
 
-    if (response.statusCode == 200) {
-      return response.data;
-    } else {
-      throw Exception('Error al obtener abonos: ${response.statusCode}');
+      if (response.statusCode == 200) {
+        return response.data;
+      } else {
+        throw Exception('Error al obtener abonos: ${response.statusCode}');
+      }
+    } catch (e) {
+      throw Exception('Error de conexión al obtener abonos: $e');
     }
-  } catch (e) {
-    throw Exception('Error de conexión al obtener abonos: $e');
   }
-}
-
 }

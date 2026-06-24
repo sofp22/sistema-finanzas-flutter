@@ -1,8 +1,9 @@
 import 'package:flutter/material.dart';
 import '../services/api_service.dart';
+import 'cliente_detalle_screen.dart'; 
 
 class ClientesScreen extends StatefulWidget {
-  final VoidCallback onCambioNegocio; // Refresca el dashboard al prestar o abonar
+  final VoidCallback onCambioNegocio; 
   const ClientesScreen({super.key, required this.onCambioNegocio});
 
   @override
@@ -15,12 +16,9 @@ class _ClientesScreenState extends State<ClientesScreen> {
   bool _cargando = false;
   final _searchController = TextEditingController();
 
-  // Llaves para validación de formularios modales
   final _formClienteKey = GlobalKey<FormState>();
   final _formPrestamoKey = GlobalKey<FormState>();
-  final _formAbonoKey = GlobalKey<FormState>();
 
-  // Controladores temporales de texto
   final _nombreCtrl = TextEditingController();
   final _cedulaCtrl = TextEditingController();
   final _telCtrl = TextEditingController();
@@ -60,15 +58,45 @@ class _ClientesScreenState extends State<ClientesScreen> {
   void _mostrarSnackBar(String msg, Color color) {
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(msg), backgroundColor: color),
+      SnackBar(content: Text(msg), backgroundColor: color, behavior: SnackBarBehavior.floating),
     );
   }
 
-  // ================= FORMULARIO MODAL: CREAR CLIENTE =================
-  void _modalCrearCliente() {
-    _nombreCtrl.clear();
-    _cedulaCtrl.clear();
-    _telCtrl.clear();
+  // ================= ELIMINAR CLIENTE =================
+  Future<void> _eliminarCliente(String clienteId) async {
+    final confirmar = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('¿Eliminar Cliente?'),
+        content: const Text('Esta acción no se puede deshacer. Si el cliente tiene préstamos activos, la base de datos podría bloquear la eliminación.'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancelar')),
+          TextButton(
+            onPressed: () => Navigator.pop(context, true), 
+            child: const Text('Sí, Eliminar', style: TextStyle(color: Colors.red)),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmar == true) {
+      try {
+        await _apiService.eliminarCliente(clienteId);
+        _mostrarSnackBar('Cliente eliminado correctamente', Colors.green);
+        _buscarClientes(); 
+      } catch (e) {
+        _mostrarSnackBar('No se pudo eliminar: $e', Colors.red);
+      }
+    }
+  }
+
+  // ================= FORMULARIO MODAL: CREAR O EDITAR CLIENTE =================
+  void _modalCliente({Map<String, dynamic>? clienteExistente}) {
+    final bool esEdicion = clienteExistente != null;
+    
+    _nombreCtrl.text = esEdicion ? clienteExistente['nombre'] ?? '' : '';
+    _cedulaCtrl.text = esEdicion ? clienteExistente['cedula'] ?? '' : '';
+    _telCtrl.text = esEdicion ? clienteExistente['telefono'] ?? '' : '';
 
     showModalBottomSheet(
       context: context, 
@@ -81,27 +109,35 @@ class _ClientesScreenState extends State<ClientesScreen> {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              const Text('Registrar Nuevo Cliente', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+              Text(esEdicion ? 'Editar Cliente' : 'Registrar Nuevo Cliente', style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
               const SizedBox(height: 15),
               TextFormField(controller: _nombreCtrl, decoration: const InputDecoration(labelText: 'Nombre Completo', prefixIcon: Icon(Icons.person)), validator: (v) => v!.isEmpty ? 'Requerido' : null),
               TextFormField(controller: _cedulaCtrl, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: 'Cédula / Documento', prefixIcon: Icon(Icons.badge)), validator: (v) => v!.isEmpty ? 'Requerido' : null),
               TextFormField(controller: _telCtrl, keyboardType: TextInputType.phone, decoration: const InputDecoration(labelText: 'Teléfono', prefixIcon: Icon(Icons.phone)), validator: (v) => v!.isEmpty ? 'Requerido' : null),
               const SizedBox(height: 20),
               ElevatedButton(
-                style: ElevatedButton.styleFrom(backgroundColor: Colors.green, foregroundColor: Colors.white, minimumSize: const Size(double.infinity, 45)),
+                style: ElevatedButton.styleFrom(backgroundColor: esEdicion ? Colors.blue : Colors.green, foregroundColor: Colors.white, minimumSize: const Size(double.infinity, 45)),
                 onPressed: () async {
                   if (_formClienteKey.currentState!.validate()) {
                     try {
-                      await _apiService.crearCliente(nombre: _nombreCtrl.text, cedula: _cedulaCtrl.text, telefono: _telCtrl.text);
+                      if (esEdicion) {
+                        await _apiService.editarCliente(
+                          clienteExistente['id'].toString(), 
+                          {'nombre': _nombreCtrl.text, 'cedula': _cedulaCtrl.text, 'telefono': _telCtrl.text}
+                        );
+                        _mostrarSnackBar('Cliente actualizado con éxito', Colors.blue);
+                      } else {
+                        await _apiService.crearCliente(nombre: _nombreCtrl.text, cedula: _cedulaCtrl.text, telefono: _telCtrl.text);
+                        _mostrarSnackBar('Cliente creado con éxito', Colors.green);
+                      }
                       if (context.mounted) Navigator.pop(context);
                       _buscarClientes();
-                      _mostrarSnackBar('Cliente creado con éxito', Colors.green);
                     } catch (e) { 
                       _mostrarSnackBar(e.toString(), Colors.red); 
                     }
                   }
                 },
-                child: const Text('Guardar Cliente'),
+                child: Text(esEdicion ? 'Actualizar Cliente' : 'Guardar Cliente'),
               ),
               const SizedBox(height: 20),
             ],
@@ -114,7 +150,7 @@ class _ClientesScreenState extends State<ClientesScreen> {
   // ================= FORMULARIO MODAL: NUEVO PRÉSTAMO =================
   void _modalCrearPrestamo(String clienteId, String nombreCliente) {
     _montoCtrl.clear();
-    _interesCtrl.text = "20"; // Tasa por defecto sugerida
+    _interesCtrl.text = "20"; 
 
     showModalBottomSheet(
       context: context, 
@@ -144,7 +180,7 @@ class _ClientesScreenState extends State<ClientesScreen> {
                       );
                       if (context.mounted) Navigator.pop(context);
                       _buscarClientes();
-                      widget.onCambioNegocio(); // Auto-actualiza el dashboard
+                      widget.onCambioNegocio(); 
                       _mostrarSnackBar('¡Préstamo otorgado e ingresado a cartera!', Colors.green);
                     } catch (e) { 
                       _mostrarSnackBar(e.toString(), Colors.red); 
@@ -161,79 +197,11 @@ class _ClientesScreenState extends State<ClientesScreen> {
     );
   }
 
-  // ================= FORMULARIO MODAL: REGISTRAR ABONO =================
-  void _modalRegistrarAbono(String prestamoId, double saldoActual, String nombreCliente) {
-    _montoCtrl.clear(); // Usado para Capital
-    _interesCtrl.clear(); // Usado para Interés
-
-    showModalBottomSheet(
-      context: context, 
-      isScrollControlled: true,
-      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
-      builder: (context) => Padding(
-        padding: EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom, top: 20, left: 20, right: 20),
-        child: Form(
-          key: _formAbonoKey,
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Text('Cobrar Cuota - $nombreCliente', style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
-              Text('Saldo Pendiente Total: \$$saldoActual', style: const TextStyle(color: Colors.red, fontWeight: FontWeight.bold)),
-              const SizedBox(height: 15),
-              TextFormField(
-                controller: _interesCtrl, 
-                keyboardType: TextInputType.number, 
-                decoration: const InputDecoration(labelText: 'Pago a Interés (\$)', prefixIcon: Icon(Icons.percent)),
-              ),
-              const SizedBox(height: 12),
-              TextFormField(
-                controller: _montoCtrl, 
-                keyboardType: TextInputType.number, 
-                decoration: const InputDecoration(labelText: 'Abono Directo a Capital (\$)', prefixIcon: Icon(Icons.payments)),
-              ),
-              const SizedBox(height: 20),
-              ElevatedButton(
-                style: ElevatedButton.styleFrom(backgroundColor: Colors.orange[800], foregroundColor: Colors.white, minimumSize: const Size(double.infinity, 45)),
-                onPressed: () async {
-                  double capital = double.tryParse(_montoCtrl.text) ?? 0.0;
-                  double interes = double.tryParse(_interesCtrl.text) ?? 0.0;
-
-                  if (capital == 0 && interes == 0) {
-                    _mostrarSnackBar('Debes ingresar al menos un valor', Colors.orange);
-                    return;
-                  }
-
-                  try {
-                    // Corregido para enviar de forma independiente Capital e Interés según tu ApiService
-                    await _apiService.registrarAbono(
-                      prestamoId: prestamoId, 
-                      montoCapital: capital,
-                      montoInteres: interes,
-                    );
-                    if (context.mounted) Navigator.pop(context);
-                    _buscarClientes();
-                    widget.onCambioNegocio(); // Refresca Dashboard en vivo
-                    _mostrarSnackBar('¡Abono procesado correctamente!', Colors.green);
-                  } catch (e) { 
-                    _mostrarSnackBar(e.toString(), Colors.red); 
-                  }
-                },
-                child: const Text('Procesar Pago Recibido'),
-              ),
-              const SizedBox(height: 20),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       body: Column(
         children: [
-          // Buscador superior estético
           Padding(
             padding: const EdgeInsets.all(12.0),
             child: TextField(
@@ -251,8 +219,6 @@ class _ClientesScreenState extends State<ClientesScreen> {
               onChanged: (v) => _buscarClientes(),
             ),
           ),
-
-          // Lista de clientes con sus préstamos activos amarrados
           Expanded(
             child: _cargando
               ? const Center(child: CircularProgressIndicator())
@@ -262,71 +228,95 @@ class _ClientesScreenState extends State<ClientesScreen> {
                     itemCount: _clientes.length,
                     itemBuilder: (context, index) {
                       final cliente = _clientes[index];
-
-                      // EXTRACCIÓN BLINDADA Y COMPLETA DE PRÉSTAMOS
                       final listaPrestamos = cliente['prestamos'];
                       final bool tienePrestamos = listaPrestamos != null && (listaPrestamos as List).isNotEmpty;
 
                       Map<String, dynamic>? prestamoActivo;
+                      
+                      // MAGIA: Validación Inmune a "Activo", "activo", "ACTIVO" o "pendiente"
                       if (tienePrestamos) {
                         try {
-                          prestamoActivo = (listaPrestamos as List).firstWhere(
-                            (p) => p != null && p['estado'].toString().trim().toLowerCase() == 'activo',
-                            orElse: () => null,
-                          );
+                          final prestamos = listaPrestamos as List;
+                          prestamoActivo = prestamos.firstWhere((p) {
+                            if (p == null) return false;
+                            final saldo = double.tryParse((p['saldo_actual'] ?? p['saldo_restante'] ?? 0).toString()) ?? 0.0;
+                            // Esto convierte cualquier cosa a minúsculas, así no importará cómo lo mande el backend
+                            final estado = p['estado']?.toString().trim().toLowerCase() ?? '';
+                            
+                            return estado == 'activo' || estado == 'pendiente' || saldo > 0;
+                          }, orElse: () => null);
+
+                          if (prestamoActivo == null && prestamos.isNotEmpty) {
+                             prestamoActivo = prestamos.last;
+                          }
                         } catch (e) {
                           prestamoActivo = null;
                         }
                       }
 
                       final String clienteId = cliente['id'].toString();
-
-                      // Extracción segura del saldo soportando ambas llaves estructurales posibles
                       final double saldo = double.tryParse(
                         (prestamoActivo?['saldo_actual'] ?? prestamoActivo?['saldo_restante'] ?? 0).toString()
                       ) ?? 0.0;
 
+                      // Si no hay préstamo activo y el saldo es 0, no tiene deudas
+                      final bool sinDeudas = prestamoActivo == null || (saldo <= 0 && prestamoActivo['estado'].toString().toLowerCase() != 'activo');
+
                       return Card(
                         margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                        child: ExpansionTile(
+                        child: ListTile(
                           leading: CircleAvatar(backgroundColor: Colors.indigo[50], child: const Icon(Icons.person, color: Colors.indigo)),
                           title: Text(cliente['nombre'] ?? 'Sin Nombre', style: const TextStyle(fontWeight: FontWeight.bold)),
-                          subtitle: Text('CC: ${cliente['cedula'] ?? "---"} | Tel: ${cliente['telefono'] ?? "---"}'),
-                          children: [
-                            Padding(
-                              padding: const EdgeInsets.all(12.0),
-                              child: Row(
-                                mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                                children: [
-                                  if (prestamoActivo == null)
-                                    ElevatedButton.icon(
-                                      icon: const Icon(Icons.add, size: 16),
-                                      label: const Text('Prestar'),
-                                      style: ElevatedButton.styleFrom(backgroundColor: Colors.indigo, foregroundColor: Colors.white),
+                          subtitle: Text(
+                            sinDeudas
+                                ? 'CC: ${cliente['cedula'] ?? "---"} | Sin deudas'
+                                : 'CC: ${cliente['cedula'] ?? "---"} | Saldo: \$$saldo',
+                            style: TextStyle(color: sinDeudas ? Colors.grey[600] : Colors.red),
+                          ),
+                          trailing: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              sinDeudas
+                                  ? IconButton(
+                                      icon: const Icon(Icons.add_circle, color: Colors.indigo, size: 28),
                                       onPressed: () => _modalCrearPrestamo(clienteId, cliente['nombre'] ?? ''),
                                     )
-                                  else ...[
-                                    Column(
-                                      crossAxisAlignment: CrossAxisAlignment.start,
-                                      children: [
-                                        const Text('Préstamo Activo:', style: TextStyle(fontWeight: FontWeight.bold, color: Colors.grey)),
-                                        Text('Saldo: \$$saldo', style: const TextStyle(color: Colors.red, fontWeight: FontWeight.bold)),
-                                      ],
-                                    ),
-                                    ElevatedButton.icon(
-                                      icon: const Icon(Icons.monetization_on, size: 16),
-                                      label: const Text('Cobrar Cuota'),
-                                      style: ElevatedButton.styleFrom(backgroundColor: Colors.orange[800], foregroundColor: Colors.white),
-                                      onPressed: () {
-                                        final String prestamoId = prestamoActivo!['id'].toString();
-                                        _modalRegistrarAbono(prestamoId, saldo, cliente['nombre'] ?? '');
-                                      },
-                                    ),
-                                  ]
+                                  : const Icon(Icons.arrow_forward_ios, size: 16, color: Colors.indigo),
+                              
+                              PopupMenuButton<String>(
+                                icon: const Icon(Icons.more_vert, color: Colors.grey),
+                                onSelected: (value) {
+                                  if (value == 'editar') {
+                                    _modalCliente(clienteExistente: cliente);
+                                  } else if (value == 'eliminar') {
+                                    _eliminarCliente(clienteId);
+                                  }
+                                },
+                                itemBuilder: (context) => [
+                                  const PopupMenuItem(value: 'editar', child: Row(children: [Icon(Icons.edit, color: Colors.blue, size: 20), SizedBox(width: 8), Text('Editar')])),
+                                  const PopupMenuItem(value: 'eliminar', child: Row(children: [Icon(Icons.delete, color: Colors.red, size: 20), SizedBox(width: 8), Text('Eliminar', style: TextStyle(color: Colors.red))])),
                                 ],
                               ),
-                            )
-                          ],
+                            ],
+                          ),
+                          onTap: () {
+                            if (!sinDeudas && prestamoActivo != null) {
+                              Navigator.push(
+                                context,
+                                MaterialPageRoute(
+                                  builder: (context) => ClienteDetalleScreen(
+                                    cliente: cliente, 
+                                    prestamo: prestamoActivo!,
+                                  ),
+                                ),
+                              ).then((_) {
+                                _buscarClientes(); 
+                                widget.onCambioNegocio(); 
+                              });
+                            } else {
+                              _mostrarSnackBar('Este cliente no tiene un préstamo activo. Dale al botón (+) para crear uno.', Colors.orange);
+                            }
+                          },
                         ),
                       );
                     },
@@ -335,7 +325,7 @@ class _ClientesScreenState extends State<ClientesScreen> {
         ],
       ),
       floatingActionButton: FloatingActionButton.extended(
-        onPressed: _modalCrearCliente,
+        onPressed: () => _modalCliente(),
         backgroundColor: Colors.green,
         foregroundColor: Colors.white,
         icon: const Icon(Icons.person_add),

@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import '../services/api_service.dart';
 
 class FinanzasScreen extends StatefulWidget {
-  final VoidCallback onTransaccionAgregada; // Para refrescar el dashboard al guardar
+  final VoidCallback onTransaccionAgregada; 
   const FinanzasScreen({super.key, required this.onTransaccionAgregada});
 
   @override
@@ -14,16 +14,15 @@ class _FinanzasScreenState extends State<FinanzasScreen> {
   List<dynamic> _historial = [];
   bool _cargando = true;
 
-  // Controladores para el formulario de agregar gasto/ingreso
   final _formKey = GlobalKey<FormState>();
   final _montoController = TextEditingController();
   final _descController = TextEditingController();
   String _tipoSeleccionado = 'gasto';
   String _categoriaSeleccionada = 'Comida';
   String _metodoPagoSeleccionado = 'Efectivo';
-final List<String> _metodosPago = ['Efectivo', 'Transferencia'];
-
-  final List<String> _categorias = ['Comida', 'Arriendo', 'Transporte', 'Salario', 'Servicios', 'Entretenimiento', 'Otros'];
+  
+  final List<String> _metodosPago = ['Efectivo', 'Transferencia', 'Tarjeta de Crédito', 'Otro'];
+  final List<String> _categorias = ['Comida', 'Arriendo', 'Transporte', 'Salario', 'Servicios', 'Entretenimiento', 'prestamo', 'abono capital', 'abono interes', 'pago responsabilidades', 'pago capital', 'pago interes', 'Otro'];
 
   @override
   void initState() {
@@ -57,6 +56,48 @@ final List<String> _metodosPago = ['Efectivo', 'Transferencia'];
     }
   }
 
+  // ================= ELIMINAR TRANSACCIÓN =================
+  Future<void> _eliminarTransaccion(String transaccionId) async {
+    final confirmar = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('¿Eliminar registro?'),
+        content: const Text('Esta acción modificará los saldos de tu Dashboard.'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancelar')),
+          TextButton(
+            onPressed: () => Navigator.pop(context, true), 
+            child: const Text('Sí, Eliminar', style: TextStyle(color: Colors.red)),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmar == true) {
+      try {
+        await _apiService.eliminarTransaccionPersonal(transaccionId);
+        _mostrarSnackBar('Transacción eliminada', Colors.green);
+        _cargarHistorial(); 
+        widget.onTransaccionAgregada(); // Refresca el Dashboard general
+      } catch (e) {
+        _mostrarSnackBar('Error al eliminar: $e', Colors.red);
+      }
+    }
+  }
+
+  // Traductor UI -> Backend para el Método de Pago
+  String _mapearMetodoPagoParaBackend(String metodoUI) {
+    switch (metodoUI) {
+      case 'Transferencia':
+        return 'cuenta_bancaria';
+      case 'Tarjeta de Crédito':
+        return 'tarjeta_credito';
+      case 'Efectivo':
+      default:
+        return 'efectivo';
+    }
+  }
+
   void _guardarTransaccion() async {
     if (_formKey.currentState!.validate()) {
       try {
@@ -67,24 +108,23 @@ final List<String> _metodosPago = ['Efectivo', 'Transferencia'];
           return;
         }
 
-        // Busca esta sección en tu finanzas_screen.dart y déjala así:
-await _apiService.registrarTransaccionPersonal(
-  tipo: _tipoSeleccionado,
-  monto: montoParsed,
-  categoria: _categoriaSeleccionada,
-  metodoPago: _metodoPagoSeleccionado, // <--- ¡AQUÍ SE AGREGA EL ARGUMENTO FALTARE!
-  descripcion: _descController.text.trim().isEmpty ? null : _descController.text.trim(),
-);
+        // CORRECCIÓN MAGNA: Enviamos el formato exacto que pide FastAPI
+        await _apiService.registrarTransaccionPersonal(
+          tipo: _tipoSeleccionado,
+          monto: montoParsed,
+          categoria: _categoriaSeleccionada,
+          metodoPago: _mapearMetodoPagoParaBackend(_metodoPagoSeleccionado),
+          descripcion: _descController.text.trim().isEmpty ? null : _descController.text.trim(),
+        );
         
-        // Verificación de contexto seguro antes de manipular la navegación o UI
         if (!mounted) return;
         
         _montoController.clear();
         _descController.clear();
-        Navigator.pop(context); // Cierra el formulario modal
+        Navigator.pop(context); 
         
-        _cargarHistorial(); // Refresca esta pantalla
-        widget.onTransaccionAgregada(); // Refresca el Dashboard general
+        _cargarHistorial(); 
+        widget.onTransaccionAgregada(); 
         
         _mostrarSnackBar('¡Registro exitoso! 🎉', Colors.green);
       } catch (e) {
@@ -96,28 +136,27 @@ await _apiService.registrarTransaccionPersonal(
   void _mostrarSnackBar(String msg, Color color) {
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(msg), backgroundColor: color),
+      SnackBar(content: Text(msg), backgroundColor: color, behavior: SnackBarBehavior.floating),
     );
   }
 
-  // Ventana moderna que emerge desde abajo para registrar datos (UX Limpia)
   void _mostrarFormularioModal() {
-    // Limpiamos y reestablecemos valores por defecto antes de abrir el modal
     _montoController.clear();
     _descController.clear();
     _tipoSeleccionado = 'gasto';
     _categoriaSeleccionada = 'Comida';
+    _metodoPagoSeleccionado = 'Efectivo';
 
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
       shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(24))),
       builder: (context) {
-        return StatefulBuilder( // Permite cambiar estados visuales dentro del modal en tiempo real
+        return StatefulBuilder( 
           builder: (context, setModalState) {
             return Padding(
               padding: EdgeInsets.only(
-                bottom: MediaQuery.of(context).viewInsets.bottom, // Evita que el teclado tape el botón
+                bottom: MediaQuery.of(context).viewInsets.bottom, 
                 top: 24, left: 24, right: 24,
               ),
               child: Form(
@@ -130,7 +169,6 @@ await _apiService.registrarTransaccionPersonal(
                       const Text('Nuevo Movimiento Personal', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
                       const SizedBox(height: 20),
                       
-                      // Selector de Tipo de Movimiento (Estilo Segmentado)
                       Row(
                         children: [
                           Expanded(
@@ -154,7 +192,6 @@ await _apiService.registrarTransaccionPersonal(
                       ),
                       const SizedBox(height: 20),
 
-                      // Input de Monto con diseño limpio
                       TextFormField(
                         controller: _montoController,
                         keyboardType: const TextInputType.numberWithOptions(decimal: true),
@@ -167,7 +204,6 @@ await _apiService.registrarTransaccionPersonal(
                       ),
                       const SizedBox(height: 16),
 
-                      // Dropdown de Categorías
                       DropdownButtonFormField<String>(
                         value: _categoriaSeleccionada,
                         decoration: InputDecoration(
@@ -181,9 +217,6 @@ await _apiService.registrarTransaccionPersonal(
                       ),
                       const SizedBox(height: 16),
 
-                      // Debajo del Dropdown de Categoría, añade esto:
-                      const SizedBox(height: 16),
-
                       DropdownButtonFormField<String>(
                         value: _metodoPagoSeleccionado,
                         decoration: InputDecoration(
@@ -195,8 +228,8 @@ await _apiService.registrarTransaccionPersonal(
                         }).toList(),
                         onChanged: (val) => setModalState(() => _metodoPagoSeleccionado = val!),
                       ),
-                      
-                      // Nota opcional
+                      const SizedBox(height: 16),
+
                       TextFormField(
                         controller: _descController,
                         textCapitalization: TextCapitalization.sentences,
@@ -207,7 +240,6 @@ await _apiService.registrarTransaccionPersonal(
                       ),
                       const SizedBox(height: 24),
 
-                      // Botón Guardar Dinámico e Inteligente
                       SizedBox(
                         width: double.infinity,
                         height: 50,
@@ -254,6 +286,7 @@ await _apiService.registrarTransaccionPersonal(
                     itemBuilder: (context, index) {
                       final item = _historial[index];
                       final esGasto = item['tipo'].toString().trim().toLowerCase() == 'gasto';
+                      final transaccionId = item['id'].toString(); // Asegúrate de que el backend devuelve un 'id'
                       
                       return Card(
                         margin: const EdgeInsets.symmetric(vertical: 6),
@@ -268,13 +301,33 @@ await _apiService.registrarTransaccionPersonal(
                           ),
                           title: Text(item['categoria'] ?? 'General', style: const TextStyle(fontWeight: FontWeight.bold)),
                           subtitle: Text(item['descripcion'] ?? 'Sin descripción'),
-                          trailing: Text(
-                            '${esGasto ? "-" : "+"}\$${item['monto']}',
-                            style: TextStyle(
-                              color: esGasto ? Colors.red : Colors.green,
-                              fontWeight: FontWeight.bold,
-                              fontSize: 16,
-                            ),
+                          trailing: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Text(
+                                '${esGasto ? "-" : "+"}\$${item['monto']}',
+                                style: TextStyle(
+                                  color: esGasto ? Colors.red : Colors.green,
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 16,
+                                ),
+                              ),
+                              // Menú para eliminar la transacción
+                              PopupMenuButton<String>(
+                                icon: const Icon(Icons.more_vert, color: Colors.grey),
+                                onSelected: (value) {
+                                  if (value == 'eliminar') {
+                                    _eliminarTransaccion(transaccionId);
+                                  }
+                                },
+                                itemBuilder: (context) => [
+                                  const PopupMenuItem(
+                                    value: 'eliminar', 
+                                    child: Row(children: [Icon(Icons.delete, color: Colors.red, size: 20), SizedBox(width: 8), Text('Eliminar', style: TextStyle(color: Colors.red))])
+                                  ),
+                                ],
+                              ),
+                            ],
                           ),
                         ),
                       );

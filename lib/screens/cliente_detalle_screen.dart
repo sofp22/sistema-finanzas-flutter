@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import '../services/api_service.dart'; // Asegúrate de que esta ruta sea la correcta en tu proyecto
+import '../services/api_service.dart';
 
 class ClienteDetalleScreen extends StatefulWidget {
   final Map<String, dynamic> cliente;
@@ -19,6 +19,10 @@ class _ClienteDetalleScreenState extends State<ClienteDetalleScreen> {
   // Controladores para el formulario de cobro
   final TextEditingController _capitalController = TextEditingController();
   final TextEditingController _interesController = TextEditingController();
+  
+  // Manejo del método de pago seleccionado
+  String? _metodoSeleccionado = 'Efectivo'; 
+  final List<String> _metodosPago = ['Efectivo', 'Transferencia', 'Tarjeta de Crédito'];
 
   @override
   void initState() {
@@ -26,11 +30,17 @@ class _ClienteDetalleScreenState extends State<ClienteDetalleScreen> {
     _cargarHistorial();
   }
 
+  @override
+  void dispose() {
+    _capitalController.dispose();
+    _interesController.dispose();
+    super.dispose();
+  }
+
   Future<void> _cargarHistorial() async {
     if (!mounted) return;
     setState(() => _cargando = true);
     try {
-      // Convertimos el ID a String de forma segura para Dio
       final abonos = await _apiService.obtenerAbonosPorPrestamo(widget.prestamo['id'].toString());
       if (mounted) {
         setState(() {
@@ -41,53 +51,125 @@ class _ClienteDetalleScreenState extends State<ClienteDetalleScreen> {
     } catch (e) {
       if (mounted) {
         setState(() => _cargando = false);
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error al cargar historial: $e'), backgroundColor: Colors.red),
-        );
+        _mostrarSnackBar('Error al cargar historial: $e', Colors.red);
+      }
+    }
+  }
+
+  // Traductor UI -> Backend para evitar el Error 400 en los abonos
+  String _mapearMetodoPagoParaBackend(String metodoUI) {
+    switch (metodoUI) {
+      case 'Transferencia':
+        return 'cuenta_bancaria';
+      case 'Tarjeta de Crédito':
+        return 'tarjeta_credito';
+      case 'Efectivo':
+      default:
+        return 'efectivo';
+    }
+  }
+
+  // ================= ANULAR ABONO =================
+  Future<void> _anularAbono(String abonoId) async {
+    final confirmar = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('¿Anular este Cobro?'),
+        content: const Text('Esta acción restaurará la deuda del cliente de forma automática en el sistema.'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancelar')),
+          TextButton(
+            onPressed: () => Navigator.pop(context, true), 
+            child: const Text('Sí, Anular', style: TextStyle(color: Colors.red)),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmar == true) {
+      setState(() => _cargando = true);
+      try {
+        await _apiService.anularAbono(abonoId);
+        _mostrarSnackBar('Cobro anulado con éxito', Colors.green);
+        _cargarHistorial(); // Recargar saldos en caliente
+      } catch (e) {
+        setState(() => _cargando = false);
+        _mostrarSnackBar('Error al anular: $e', Colors.red);
       }
     }
   }
 
   void _abrirModalCobro() {
+    // CORRECCIÓN: Limpieza preventiva al abrir el formulario
+    _capitalController.clear();
+    _interesController.clear();
+    _metodoSeleccionado = 'Efectivo';
+
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
       shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
       builder: (context) {
-        return Padding(
-          padding: EdgeInsets.only(
-            bottom: MediaQuery.of(context).viewInsets.bottom,
-            left: 20, right: 20, top: 20
-          ),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const Text("Registrar Recibo de Pago", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-              const SizedBox(height: 15),
-              TextField(
-                controller: _interesController,
-                keyboardType: TextInputType.number,
-                decoration: const InputDecoration(labelText: "Pago a Interés Mensual (\$)", border: OutlineInputBorder()),
+        return StatefulBuilder( 
+          builder: (BuildContext context, StateSetter setModalState) {
+            return Padding(
+              padding: EdgeInsets.only(
+                bottom: MediaQuery.of(context).viewInsets.bottom,
+                left: 20, right: 20, top: 20
               ),
-              const SizedBox(height: 12),
-              TextField(
-                controller: _capitalController,
-                keyboardType: TextInputType.number,
-                decoration: const InputDecoration(labelText: "Abono Directo a Capital (\$)", border: OutlineInputBorder()),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text("Registrar Recibo de Pago", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                  const SizedBox(height: 15),
+                  
+                  DropdownButtonFormField<String>(
+                    value: _metodoSeleccionado,
+                    decoration: const InputDecoration(
+                      labelText: "Canal de Pago",
+                      border: OutlineInputBorder(),
+                      prefixIcon: Icon(Icons.account_balance_wallet),
+                    ),
+                    items: _metodosPago.map((String metodo) {
+                      return DropdownMenuItem<String>(
+                        value: metodo,
+                        child: Text(metodo),
+                      );
+                    }).toList(),
+                    onChanged: (String? nuevoValor) {
+                      setModalState(() {
+                        _metodoSeleccionado = nuevoValor;
+                      });
+                    },
+                  ),
+                  const SizedBox(height: 15),
+                  
+                  TextField(
+                    controller: _interesController,
+                    keyboardType: TextInputType.number,
+                    decoration: const InputDecoration(labelText: "Pago a Interés Mensual (\$)", border: OutlineInputBorder(), prefixIcon: Icon(Icons.percent)),
+                  ),
+                  const SizedBox(height: 12),
+                  TextField(
+                    controller: _capitalController,
+                    keyboardType: TextInputType.number,
+                    decoration: const InputDecoration(labelText: "Abono Directo a Capital (\$)", border: OutlineInputBorder(), prefixIcon: Icon(Icons.payments)),
+                  ),
+                  const SizedBox(height: 20),
+                  SizedBox(
+                    width: double.infinity,
+                    child: ElevatedButton(
+                      style: ElevatedButton.styleFrom(backgroundColor: Colors.green, padding: const EdgeInsets.symmetric(vertical: 15)),
+                      onPressed: _procesarPago,
+                      child: const Text("Confirmar Transacción", style: TextStyle(color: Colors.white, fontSize: 16)),
+                    ),
+                  ),
+                  const SizedBox(height: 20),
+                ],
               ),
-              const SizedBox(height: 20),
-              SizedBox(
-                width: double.infinity,
-                child: ElevatedButton(
-                  style: ElevatedButton.styleFrom(backgroundColor: Colors.green, padding: const EdgeInsets.symmetric(vertical: 15)),
-                  onPressed: _procesarPago,
-                  child: const Text("Confirmar Transacción", style: TextStyle(color: Colors.white, fontSize: 16)),
-                ),
-              ),
-              const SizedBox(height: 20),
-            ],
-          ),
+            );
+          }
         );
       },
     );
@@ -98,45 +180,51 @@ class _ClienteDetalleScreenState extends State<ClienteDetalleScreen> {
     double interes = double.tryParse(_interesController.text) ?? 0.0;
 
     if (capital == 0 && interes == 0) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text("Debes ingresar al menos un valor"), backgroundColor: Colors.orange)
-      );
+      _mostrarSnackBar("Debes ingresar al menos un valor", Colors.orange);
       return;
     }
 
-    Navigator.pop(context); // Cerrar el modal de forma segura
+    Navigator.pop(context); 
     setState(() => _cargando = true);
 
     try {
-      // Enviamos de forma separada los montos al api_service actualizado
+      // CORRECCIÓN: Enviamos el método de pago mapeado de manera limpia y segura
       await _apiService.registrarAbono(
         prestamoId: widget.prestamo['id'].toString(),
         montoCapital: capital,
         montoInteres: interes,
+        metodoPago: _mapearMetodoPagoParaBackend(_metodoSeleccionado ?? 'Efectivo'), 
       );
 
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text("¡Pago registrado exitosamente!"), backgroundColor: Colors.green)
-        );
+        _mostrarSnackBar("¡Pago registrado exitosamente!", Colors.green);
         _capitalController.clear();
         _interesController.clear();
-        _cargarHistorial(); // Recarga los saldos actualizados desde el backend
+        _cargarHistorial(); 
       }
     } catch (e) {
       if (mounted) {
         setState(() => _cargando = false);
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text("Error: $e"), backgroundColor: Colors.red)
-        );
+        _mostrarSnackBar("Error: $e", Colors.red);
       }
     }
   }
 
+  void _mostrarSnackBar(String msg, Color color) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(msg), backgroundColor: color, behavior: SnackBarBehavior.floating),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
-    double totalPrestado = double.tryParse(widget.prestamo['monto_inicial'].toString()) ?? 0.0;
-    double saldoRestante = double.tryParse(widget.prestamo['saldo_actual'].toString()) ?? 0.0;
+    double totalPrestado = double.tryParse(
+      (widget.prestamo['monto_inicial'] ?? widget.prestamo['monto'] ?? 0).toString()
+    ) ?? 0.0;
+    
+    double saldoRestante = double.tryParse(
+      (widget.prestamo['saldo_actual'] ?? widget.prestamo['saldo_restante'] ?? 0).toString()
+    ) ?? 0.0;
 
     return Scaffold(
       appBar: AppBar(title: Text(widget.cliente['nombre'] ?? "Perfil Cliente")),
@@ -147,7 +235,6 @@ class _ClienteDetalleScreenState extends State<ClienteDetalleScreen> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                // TARJETA DE RESUMEN FINANCIERO DEL CLIENTE
                 Card(
                   color: Colors.indigo.shade50,
                   elevation: 0,
@@ -179,7 +266,6 @@ class _ClienteDetalleScreenState extends State<ClienteDetalleScreen> {
                 const Text("Historial de Actividad Financiera", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
                 const SizedBox(height: 10),
                 
-                // LISTA CRONOLÓGICA DE ABONOS DETALLADOS
                 Expanded(
                   child: _historialAbonos.isEmpty
                       ? const Center(child: Text("Este cliente no registra abonos aún."))
@@ -188,25 +274,56 @@ class _ClienteDetalleScreenState extends State<ClienteDetalleScreen> {
                           itemBuilder: (context, index) {
                             final abono = _historialAbonos[index];
                             final bool esAnulado = abono['estado'].toString().toLowerCase() == 'anulado';
+                            final String metodo = abono['metodo_pago'] ?? abono['medio'] ?? 'Efectivo';
+                            final String abonoId = abono['id'].toString();
                             
                             return Card(
                               margin: const EdgeInsets.symmetric(vertical: 6),
                               child: ListTile(
-                                leading: Icon(Icons.monetization_on, color: esAnulado ? Colors.grey : Colors.green),
+                                leading: Icon(
+                                  metodo == 'Transferencia' 
+                                      ? Icons.account_balance 
+                                      : metodo == 'Tarjeta de Crédito' 
+                                          ? Icons.credit_card 
+                                          : Icons.monetization_on, 
+                                  color: esAnulado ? Colors.grey : Colors.green
+                                ),
                                 title: Text(
-                                  "Total Pagado: \$${abono['monto_total']}",
+                                  "Total Pagado: \$${abono['monto_total'] ?? (double.parse((abono['monto_capital'] ?? 0).toString()) + double.parse((abono['monto_interes'] ?? 0).toString()))}",
                                   style: TextStyle(
                                     decoration: esAnulado ? TextDecoration.lineThrough : null,
                                     fontWeight: FontWeight.bold
                                   ),
                                 ),
-                                subtitle: Text("Capital: \$${abono['monto_capital']} | Interés: \$${abono['monto_interes']}"),
-                                trailing: Text(
-                                  esAnulado ? "ANULADO" : "VÁLIDO",
-                                  style: TextStyle(
-                                    color: esAnulado ? Colors.red : Colors.blue, 
-                                    fontWeight: FontWeight.bold
-                                  ),
+                                subtitle: Text("Cap: \$${abono['monto_capital']} | Int: \$${abono['monto_interes']}\nVía: $metodo"),
+                                isThreeLine: true,
+                                trailing: Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    Text(
+                                      esAnulado ? "ANULADO" : "VÁLIDO",
+                                      style: TextStyle(
+                                        color: esAnulado ? Colors.red : Colors.blue, 
+                                        fontWeight: FontWeight.bold
+                                      ),
+                                    ),
+                                    // MENÚ DE ACCIONES: Te permite anular cobros en vivo
+                                    if (!esAnulado)
+                                      PopupMenuButton<String>(
+                                        icon: const Icon(Icons.more_vert, color: Colors.grey),
+                                        onSelected: (value) {
+                                          if (value == 'anular') {
+                                            _anularAbono(abonoId);
+                                          }
+                                        },
+                                        itemBuilder: (context) => [
+                                          const PopupMenuItem(
+                                            value: 'anular', 
+                                            child: Row(children: [Icon(Icons.cancel, color: Colors.red, size: 20), SizedBox(width: 8), Text('Anular Abono', style: TextStyle(color: Colors.red))])
+                                          ),
+                                        ],
+                                      ),
+                                  ],
                                 ),
                               ),
                             );
@@ -214,7 +331,6 @@ class _ClienteDetalleScreenState extends State<ClienteDetalleScreen> {
                         ),
                 ),
                 
-                // BOTÓN DE COBRO COMPLETO
                 SizedBox(
                   width: double.infinity,
                   child: ElevatedButton.icon(
