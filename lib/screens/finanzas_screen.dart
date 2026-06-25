@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../services/api_service.dart';
+import 'balance_screen.dart';
 
 class FinanzasScreen extends StatefulWidget {
   final VoidCallback onTransaccionAgregada; 
@@ -268,79 +269,144 @@ class _FinanzasScreenState extends State<FinanzasScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      body: _cargando
-          ? const Center(child: CircularProgressIndicator())
-          : _historial.isEmpty
-              ? const Center(
-                  child: Text(
-                    'Aún no hay registros personales.\n¡Toca el botón + abajo!', 
-                    textAlign: TextAlign.center, 
-                    style: TextStyle(color: Colors.grey, fontSize: 16),
-                  ),
-                )
-              : RefreshIndicator(
-                  onRefresh: _cargarHistorial,
-                  child: ListView.builder(
-                    padding: const EdgeInsets.all(16),
-                    itemCount: _historial.length,
-                    itemBuilder: (context, index) {
-                      final item = _historial[index];
-                      final esGasto = item['tipo'].toString().trim().toLowerCase() == 'gasto';
-                      final transaccionId = item['id'].toString(); // Asegúrate de que el backend devuelve un 'id'
-                      
-                      return Card(
-                        margin: const EdgeInsets.symmetric(vertical: 6),
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                        child: ListTile(
-                          leading: CircleAvatar(
-                            backgroundColor: esGasto ? Colors.red[50] : Colors.green[50],
-                            child: Icon(
-                              esGasto ? Icons.arrow_downward : Icons.arrow_upward, 
-                              color: esGasto ? Colors.red : Colors.green,
-                            ),
-                          ),
-                          title: Text(item['categoria'] ?? 'General', style: const TextStyle(fontWeight: FontWeight.bold)),
-                          subtitle: Text(item['descripcion'] ?? 'Sin descripción'),
-                          trailing: Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              Text(
-                                '${esGasto ? "-" : "+"}\$${item['monto']}',
-                                style: TextStyle(
-                                  color: esGasto ? Colors.red : Colors.green,
-                                  fontWeight: FontWeight.bold,
-                                  fontSize: 16,
-                                ),
-                              ),
-                              // Menú para eliminar la transacción
-                              PopupMenuButton<String>(
-                                icon: const Icon(Icons.more_vert, color: Colors.grey),
-                                onSelected: (value) {
-                                  if (value == 'eliminar') {
-                                    _eliminarTransaccion(transaccionId);
-                                  }
-                                },
-                                itemBuilder: (context) => [
-                                  const PopupMenuItem(
-                                    value: 'eliminar', 
-                                    child: Row(children: [Icon(Icons.delete, color: Colors.red, size: 20), SizedBox(width: 8), Text('Eliminar', style: TextStyle(color: Colors.red))])
-                                  ),
-                                ],
-                              ),
-                            ],
-                          ),
-                        ),
-                      );
-                    },
-                  ),
-                ),
+      // 🌟 LE AGREGAMOS UN HEROTAG ÚNICO PARA QUITAR EL ERROR ROJO DE LA CONSOLA
       floatingActionButton: FloatingActionButton.extended(
+        heroTag: 'btn_registrar_movimiento_personal', // <--- Solución al problema de múltiples Heroes
         onPressed: _mostrarFormularioModal,
         backgroundColor: Colors.indigo,
         foregroundColor: Colors.white,
         icon: const Icon(Icons.add),
         label: const Text('Registrar Movimiento'),
       ),
+      body: _cargando
+          ? const Center(child: CircularProgressIndicator())
+          : Column(
+              children: [
+                // 💳 BOTÓN DE ACCESO AL BALANCE PRIVADO (Opción B)
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 16, 16, 4),
+                  child: InkWell(
+                    onTap: () {
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(builder: (context) => const BalancePage()),
+                      );
+                    },
+                    borderRadius: BorderRadius.circular(12),
+                    child: Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 16),
+                      decoration: BoxDecoration(
+                        gradient: LinearGradient(
+                          colors: [Colors.indigo.shade700, Colors.indigo.shade500],
+                        ),
+                        borderRadius: BorderRadius.circular(12),
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.indigo.withOpacity(0.2),
+                            blurRadius: 6,
+                            offset: const Offset(0, 3),
+                          )
+                        ],
+                      ),
+                      child: const Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Row(
+                            children: [
+                              Icon(Icons.analytics_outlined, color: Colors.white, size: 24),
+                              SizedBox(width: 12),
+                              Text(
+                                'Ver Mi Balance Privado y Ahorros',
+                                style: TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 15,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                            ],
+                          ),
+                          Icon(Icons.arrow_forward_ios, color: Colors.white70, size: 16),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+
+                // HISTORIAL DE TRANSACCIONES
+                Expanded(
+                  child: _historial.isEmpty
+                      ? const Center(
+                          child: Text(
+                            'Aún no hay registros personales.\n¡Toca el botón + abajo!', 
+                            textAlign: TextAlign.center, 
+                            style: TextStyle(color: Colors.grey, fontSize: 16),
+                          ),
+                        )
+                      : RefreshIndicator(
+                          onRefresh: _cargarHistorial,
+                          child: ListView.builder(
+                            padding: const EdgeInsets.fromLTRB(16, 8, 16, 80), // Margen abajo para que el FAB no tape nada
+                            itemCount: _historial.length,
+                            itemBuilder: (context, index) {
+                              final item = _historial[index];
+                              final esGasto = item['tipo'].toString().trim().toLowerCase() == 'gasto';
+                              final transaccionId = item['id'].toString();
+                              
+                              return Card(
+                                margin: const EdgeInsets.symmetric(vertical: 6),
+                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                                child: ListTile(
+                                  leading: CircleAvatar(
+                                    backgroundColor: esGasto ? Colors.red[50] : Colors.green[50],
+                                    child: Icon(
+                                      esGasto ? Icons.arrow_downward : Icons.arrow_upward, 
+                                      color: esGasto ? Colors.red : Colors.green,
+                                    ),
+                                  ),
+                                  title: Text(item['categoria'] ?? 'General', style: const TextStyle(fontWeight: FontWeight.bold)),
+                                  subtitle: Text(item['descripcion'] ?? 'Sin descripción'),
+                                  trailing: Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      Text(
+                                        '${esGasto ? "-" : "+"}\$${item['monto']}',
+                                        style: TextStyle(
+                                          color: esGasto ? Colors.red : Colors.green,
+                                          fontWeight: FontWeight.bold,
+                                          fontSize: 16,
+                                        ),
+                                      ),
+                                      PopupMenuButton<String>(
+                                        icon: const Icon(Icons.more_vert, color: Colors.grey),
+                                        onSelected: (value) {
+                                          if (value == 'eliminar') {
+                                            _eliminarTransaccion(transaccionId);
+                                          }
+                                        },
+                                        itemBuilder: (context) => [
+                                          const PopupMenuItem(
+                                            value: 'eliminar', 
+                                            child: Row(
+                                              children: [
+                                                Icon(Icons.delete, color: Colors.red, size: 20),
+                                                SizedBox(width: 8),
+                                                Text('Eliminar', style: TextStyle(color: Colors.red))
+                                              ],
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              );
+                            },
+                          ),
+                        ),
+                ),
+              ],
+            ),
     );
   }
 }

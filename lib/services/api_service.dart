@@ -216,4 +216,74 @@ class ApiService {
       throw Exception('Error de conexión al obtener abonos: $e');
     }
   }
+
+  // ==========================================
+// 🪙 MÓDULO DE OBLIGACIONES MENSUALES
+// ==========================================
+
+// Obtener la lista de obligaciones y cuánto se ha pagado este mes
+Future<List<dynamic>> obtenerObligacionesMensuales() async {
+  try {
+    final response = await _dio.get('/obligaciones/'); // O la ruta que definas para el CRUD de tus deudas
+    return response.data;
+  } catch (e) {
+    throw Exception('Error al obtener obligaciones fijas: $e');
+  }
+}
+
+// ==========================================
+// 💰 MÓDULO DE AHORROS POR CLIENTE
+// ==========================================
+
+// Obtener el saldo total de ahorro de un cliente
+Future<Map<String, dynamic>> obtenerAhorroCliente(String clienteId) async {
+  try {
+    final response = await _dio.get('/ahorros/cliente/$clienteId');
+    return response.data as Map<String, dynamic>;
+  } catch (e) {
+    throw Exception('Error al obtener saldo de ahorro: $e');
+  }
+}
+
+// Obtener el historial de movimientos de ahorro de un cliente (15% capital / excedentes)
+Future<List<dynamic>> obtenerMovimientosAhorro(String ahorroId) async {
+  try {
+    final response = await _dio.get('/ahorros/movimientos/$ahorroId');
+    return response.data;
+  } catch (e) {
+    throw Exception('Error al obtener historial de movimientos de ahorro: $e');
+  }
+}
+
+// ==========================================
+// 📈 PANEL DE ADMINISTRACIÓN PRIVADO
+// ==========================================
+
+Future<Map<String, dynamic>> obtenerResumenBalancePrivado() async {
+  try {
+    final response = await _dio.get('/balance/resumen');
+    return response.data as Map<String, dynamic>;
+  } on DioException catch (e) {
+    if (e.response != null && e.response?.data != null) {
+      throw Exception('Error del backend: ${e.response?.data}');
+    }
+    throw Exception('Error al conectar con el balance: ${e.message}');
+  } catch (e) {
+    throw Exception('Error inesperado: $e');
+  }
+}
+
+// Guardar una nueva obligación fija mensual
+Future<Map<String, dynamic>> registrarObligacionMensual(String concepto, double montoMeta) async {
+  try {
+    final response = await _dio.post('/balance/obligaciones', data: {
+      'concepto': concepto,
+      'monto_meta': montoMeta,
+    });
+    return response.data as Map<String, dynamic>;
+  } on DioException catch (e) {
+    throw Exception('Error al guardar obligación: ${e.response?.data ?? e.message}');
+  }
+}
+
 }
