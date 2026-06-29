@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import '../services/api_service.dart';
 
 class BalancePage extends StatefulWidget {
-  const BalancePage({Key? key}) : super(key: key);
+  const BalancePage({super.key});
 
   @override
   State<BalancePage> createState() => _BalancePageState();
@@ -12,7 +12,7 @@ class _BalancePageState extends State<BalancePage> {
   final ApiService _apiService = ApiService();
   late Future<Map<String, dynamic>> _balanceFuture;
 
-  // Controladores de texto para capturar los inputs del formulario
+  // Controladores de texto para capturar los inputs del formulario de creación
   final TextEditingController _conceptoController = TextEditingController();
   final TextEditingController _montoController = TextEditingController();
 
@@ -22,20 +22,163 @@ class _BalancePageState extends State<BalancePage> {
     _balanceFuture = _apiService.obtenerResumenBalancePrivado();
   }
 
+  @override
+  void dispose() {
+    _conceptoController.dispose();
+    _montoController.dispose();
+    super.dispose();
+  }
+
   Future<void> _refreshBalance() async {
     setState(() {
       _balanceFuture = _apiService.obtenerResumenBalancePrivado();
     });
   }
 
-  // 📝 VENTANA EMERGENTE CON FORMULARIO (INPUTS)
+  void _mostrarSnackBar(String mensaje, Color color) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(mensaje),
+        backgroundColor: color,
+        behavior: SnackBarBehavior.floating,
+      ),
+    );
+  }
+
+  // 1️⃣ LÓGICA PARA REINICIAR / COMPLETAR OBLIGACIÓN
+  Future<void> _confirmarYCompletar(String id) async {
+    final bool? seguro = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Row(
+          children: [
+            Icon(Icons.check_circle, color: Colors.green),
+            SizedBox(width: 8),
+            Text('¿Completar mes?'),
+          ],
+        ),
+        content: const Text('El progreso de esta obligación se reiniciará a \$0 para comenzar el ahorro del próximo mes.'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancelar')),
+          TextButton(onPressed: () => Navigator.pop(context, true), child: const Text('Aceptar y Reiniciar')),
+        ],
+      ),
+    );
+
+    if (seguro == true) {
+      try {
+        await _apiService.completarObligacion(id);
+        _refreshBalance();
+        _mostrarSnackBar('¡Ciclo mensual reiniciado con éxito! 🔁', Colors.green);
+      } catch (e) {
+        _mostrarSnackBar('Error al completar: $e', Colors.red);
+      }
+    }
+  }
+
+  // 2️⃣ LÓGICA PARA ELIMINAR OBLIGACIÓN
+  Future<void> _confirmarYEliminar(String id) async {
+    final bool? seguro = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Row(
+          children: [
+            Icon(Icons.warning, color: Colors.red),
+            SizedBox(width: 8),
+            Text('¿Eliminar obligación?'),
+          ],
+        ),
+        content: const Text('Esta acción borrará la meta de balance por completo. No se puede deshacer.'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancelar')),
+          TextButton(
+            onPressed: () => Navigator.pop(context, true), 
+            child: const Text('Eliminar', style: TextStyle(color: Colors.red)),
+          ),
+        ],
+      ),
+    );
+
+    if (seguro == true) {
+      try {
+        await _apiService.eliminarObligacion(id);
+        _refreshBalance();
+        _mostrarSnackBar('Obligación eliminada correctamente', Colors.orange);
+      } catch (e) {
+        _mostrarSnackBar('Error al eliminar: $e', Colors.red);
+      }
+    }
+  }
+
+  // 3️⃣ LÓGICA MODAL PARA EDITAR VALORES EXISTENTES
+  void _mostrarFormularioEditar(dynamic ob) {
+    final String id = ob['id'].toString();
+    final TextEditingController editConceptoCtrl = TextEditingController(text: ob['concepto'] ?? '');
+    final TextEditingController editMontoCtrl = TextEditingController(text: (ob['monto_meta'] ?? 0.0).toString());
+
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Editar Obligación'),
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextField(
+                controller: editConceptoCtrl,
+                decoration: const InputDecoration(labelText: 'Concepto', border: OutlineInputBorder()),
+              ),
+              const SizedBox(height: 15),
+              TextField(
+                controller: editMontoCtrl,
+                keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                decoration: const InputDecoration(labelText: 'Monto Meta Mensual (\$)', border: OutlineInputBorder()),
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancelar')),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.indigo, foregroundColor: Colors.white),
+            onPressed: () async {
+              final nuevoConcepto = editConceptoCtrl.text.trim();
+              final double nuevoMonto = double.tryParse(editMontoCtrl.text.trim()) ?? 0.0;
+
+              if (nuevoConcepto.isEmpty || nuevoMonto <= 0) {
+                _mostrarSnackBar('Por favor llena los campos correctamente', Colors.orange);
+                return;
+              }
+
+              try {
+                await _apiService.editarObligacion(id, nuevoConcepto, nuevoMonto);
+                if (!mounted) return;
+                Navigator.pop(context);
+                _refreshBalance();
+                _mostrarSnackBar('¡Actualizado correctamente! 💾', Colors.green);
+              } catch (e) {
+                _mostrarSnackBar('Error al editar: $e', Colors.red);
+              }
+            },
+            child: const Text('Guardar'),
+          )
+        ],
+      ),
+    ).then((_) {
+      editConceptoCtrl.dispose();
+      editMontoCtrl.dispose();
+    });
+  }
+
+  // 📝 VENTANA EMERGENTE CON FORMULARIO PARA CREAR NUEVAS OBLIGACIONES
   void _mostrarFormularioObligacion() {
     _conceptoController.clear();
     _montoController.clear();
 
     showModalBottomSheet(
       context: context,
-      isScrollControlled: true, // Permite que suba si el teclado se abre
+      isScrollControlled: true,
       shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
       builder: (context) {
         return Padding(
@@ -46,8 +189,6 @@ class _BalancePageState extends State<BalancePage> {
             children: [
               const Text('Nueva Obligación Mensual', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
               const SizedBox(height: 15),
-              
-              // Input 1: Concepto
               TextField(
                 controller: _conceptoController,
                 decoration: const InputDecoration(
@@ -57,8 +198,6 @@ class _BalancePageState extends State<BalancePage> {
                 ),
               ),
               const SizedBox(height: 15),
-              
-              // Input 2: Monto Meta
               TextField(
                 controller: _montoController,
                 keyboardType: TextInputType.number,
@@ -69,8 +208,6 @@ class _BalancePageState extends State<BalancePage> {
                 ),
               ),
               const SizedBox(height: 20),
-              
-              // Botón de Enviar
               SizedBox(
                 width: double.infinity,
                 height: 50,
@@ -81,29 +218,24 @@ class _BalancePageState extends State<BalancePage> {
                     final monto = double.tryParse(_montoController.text.trim()) ?? 0.0;
 
                     if (concepto.isEmpty || monto <= 0) {
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(content: Text('Por favor llena todos los campos correctamente')),
-                      );
+                      _mostrarSnackBar('Por favor llena todos los campos correctamente', Colors.orange);
                       return;
                     }
 
                     try {
-                      // Enviamos la información al backend
                       await _apiService.registrarObligacionMensual(concepto, monto);
-                      Navigator.pop(context); // Cerrar formulario
-                      _refreshBalance(); // Refrescar la pantalla de inmediato
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(content: Text('Obligación agregada correctamente'), backgroundColor: Colors.green),
-                      );
+                      if (!mounted) return;
+                      Navigator.pop(context);
+                      _refreshBalance();
+                      _mostrarSnackBar('Obligación agregada correctamente', Colors.green);
                     } catch (e) {
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        SnackBar(content: Text('Error: $e'), backgroundColor: Colors.red),
-                      );
+                      _mostrarSnackBar('Error: $e', Colors.red);
                     }
                   },
                   child: const Text('Guardar Obligación', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
                 ),
-              )
+              ),
+              const SizedBox(height: 20),
             ],
           ),
         );
@@ -119,7 +251,6 @@ class _BalancePageState extends State<BalancePage> {
         backgroundColor: Colors.indigo,
         foregroundColor: Colors.white,
       ),
-      // ➕ BOTÓN FLOTANTE PARA INGRESAR DATOS DESDE LA APP
       floatingActionButton: FloatingActionButton(
         heroTag: 'btn_balance',
         onPressed: _mostrarFormularioObligacion,
@@ -192,6 +323,7 @@ class _BalancePageState extends State<BalancePage> {
                             final double meta = double.tryParse(ob['monto_meta'].toString()) ?? 0.0;
                             final double pagado = double.tryParse(ob['monto_pagado_mes'].toString()) ?? 0.0;
                             final double progreso = meta > 0 ? (pagado / meta) : 0.0;
+                            final String obId = ob['id'].toString();
 
                             return Card(
                               margin: const EdgeInsets.symmetric(vertical: 6),
@@ -203,8 +335,69 @@ class _BalancePageState extends State<BalancePage> {
                                     Row(
                                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                                       children: [
-                                        Text(ob['concepto'] ?? 'Obligación', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
-                                        Text('\$${pagado.toStringAsFixed(0)} / \$${meta.toStringAsFixed(0)}', style: TextStyle(color: Colors.grey.shade700)),
+                                        // Título Expandido para evitar desbordes visuales
+                                        Expanded(
+                                          child: Text(
+                                            ob['concepto'] ?? 'Obligación', 
+                                            style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+                                            overflow: TextOverflow.ellipsis,
+                                          ),
+                                        ),
+                                        // Contenedor de montos + Menú desplegable de acciones
+                                        Row(
+                                          children: [
+                                            Text(
+                                              '\$${pagado.toStringAsFixed(0)} / \$${meta.toStringAsFixed(0)}', 
+                                              style: TextStyle(color: Colors.grey.shade700),
+                                            ),
+                                            PopupMenuButton<String>(
+                                              icon: const Icon(Icons.more_vert, color: Colors.grey, size: 20),
+                                              padding: EdgeInsets.zero,
+                                              constraints: const BoxConstraints(),
+                                              onSelected: (value) {
+                                                if (value == 'completar') {
+                                                  _confirmarYCompletar(obId);
+                                                } else if (value == 'editar') {
+                                                  _mostrarFormularioEditar(ob);
+                                                } else if (value == 'eliminar') {
+                                                  _confirmarYEliminar(obId);
+                                                }
+                                              },
+                                              itemBuilder: (context) => [
+                                                const PopupMenuItem(
+                                                  value: 'completar',
+                                                  child: Row(
+                                                    children: [
+                                                      Icon(Icons.check_circle, color: Colors.green, size: 18),
+                                                      SizedBox(width: 8),
+                                                      Text('Completar y Reiniciar'),
+                                                    ],
+                                                  ),
+                                                ),
+                                                const PopupMenuItem(
+                                                  value: 'editar',
+                                                  child: Row(
+                                                    children: [
+                                                      Icon(Icons.edit, color: Colors.blue, size: 18),
+                                                      SizedBox(width: 8),
+                                                      Text('Editar Valores'),
+                                                    ],
+                                                  ),
+                                                ),
+                                                const PopupMenuItem(
+                                                  value: 'eliminar',
+                                                  child: Row(
+                                                    children: [
+                                                      Icon(Icons.delete, color: Colors.red, size: 18),
+                                                      SizedBox(width: 8),
+                                                      Text('Eliminar Deuda', style: TextStyle(color: Colors.red)),
+                                                    ],
+                                                  ),
+                                                ),
+                                              ],
+                                            ),
+                                          ],
+                                        ),
                                       ],
                                     ),
                                     const SizedBox(height: 8),
@@ -241,7 +434,7 @@ class _BalancePageState extends State<BalancePage> {
                             Color colorIcono = tipo == '15_Capital' ? Colors.blue : Colors.green;
 
                             return ListTile(
-                              leading: CircleAvatar(backgroundColor: colorIcono.withOpacity(0.1), child: Icon(icono, color: colorIcono)),
+                              leading: CircleAvatar(backgroundColor: colorIcono.withAlpha((0.1 * 255).round()), child: Icon(icono, color: colorIcono)),
                               title: Text(titulo, style: const TextStyle(fontWeight: FontWeight.w600)),
                               subtitle: Text(mov['fecha'] != null ? mov['fecha'].toString().substring(0, 10) : ''),
                               trailing: Text(

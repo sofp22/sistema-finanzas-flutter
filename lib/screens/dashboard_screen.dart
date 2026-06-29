@@ -5,10 +5,10 @@ class DashboardScreen extends StatefulWidget {
   const DashboardScreen({super.key});
 
   @override
-  State<DashboardScreen> createState() => DashboardScreenState(); // <-- Quitamos el guion bajo (_) para hacerlo público
+  State<DashboardScreen> createState() => DashboardScreenState(); 
 }
 
-class DashboardScreenState extends State<DashboardScreen> { // <-- Aquí también quitamos el guion bajo
+class DashboardScreenState extends State<DashboardScreen> { 
   final ApiService _apiService = ApiService();
   Map<String, dynamic>? _datosEmpresa;
   Map<String, dynamic>? _datosPersonales;
@@ -48,7 +48,6 @@ class DashboardScreenState extends State<DashboardScreen> { // <-- Aquí tambié
 
   @override
   Widget build(BuildContext context) {
-    // Le quitamos el AppBar a esta pantalla individual para que no se duplique con la navegación principal
     return Scaffold(
       body: _cargando
           ? const Center(child: CircularProgressIndicator())
@@ -125,7 +124,6 @@ class DashboardScreenState extends State<DashboardScreen> { // <-- Aquí tambié
   }
 
   Widget _construirFilaDato(String titulo, String valor, Color colorValor, {bool resaltar = false}) {
-    // Limpiamos los decimales innecesarios (ej: $20000.0 -> $20000)
     String valorLimpio = valor.replaceAll('.0', ''); 
 
     return Padding(
@@ -133,7 +131,6 @@ class DashboardScreenState extends State<DashboardScreen> { // <-- Aquí tambié
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          // Expanded evita que el texto empuje los números fuera de la pantalla
           Expanded(
             child: Text(titulo, style: TextStyle(fontSize: 15, color: Colors.grey[700]), overflow: TextOverflow.ellipsis),
           ),
